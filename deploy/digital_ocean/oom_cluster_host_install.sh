@@ -62,7 +62,7 @@ register_node() {
     fi
     sudo apt-get install nfs-common -y
     sudo mkdir /$DOCKERDATA_NFS
-    sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport $MASTER:/$NFS_PATH_IN_MASTER /$DOCKERDATA_NFS
+    sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport $MASTER:/ /$DOCKERDATA_NFS
     if [[ "$IS_NODE" != false ]]; then
         echo "Running agent docker..."
         if [[ "$COMPUTEADDRESS" != false ]]; then
@@ -78,7 +78,6 @@ register_node() {
 IS_NODE=false
 MASTER=
 TOKEN=
-NFS_PATH_IN_MASTER=
 AGENT_VER=1.2.11
 COMPUTEADDRESS=true
 ADDRESS=
@@ -94,9 +93,6 @@ while getopts ":u:n:s:e:r:t:h:c:a:v" PARAM; do
       ;;
     s)
       MASTER=${OPTARG}
-      ;;
-    e)
-      NFS_PATH_IN_MASTER=${OPTARG}
       ;;
     t)
       TOKEN=${OPTARG}
