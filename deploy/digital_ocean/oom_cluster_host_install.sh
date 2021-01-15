@@ -1,0 +1,132 @@
+#!/bin/bash
+#############################################################################
+#
+# Copyright © 2018 Amdocs.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#        http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+#############################################################################
+# v20190306
+# Amazon AWS specific EFS/NFS share and rancher host join script for each cluster node
+# https://wiki.onap.org/display/DW/Cloud+Native+Deployment
+# source from https://jira.onap.org/browse/OOM-320
+# Michael O'Brien
+# LOG-806 upgrade for Rancher 1.6.22, kubernetes 1.11
+# master/dublin - LOG-895
+#     Rancher 1.6.25, Kubernetes 1.11.5, kubectl 1.11.5, Helm 2.9.2, Docker 17.03
+
+
+usage() {
+cat <<EOF
+Usage: $0 [PARAMs]
+example
+ master
+ sudo ./cluster.sh -n false -s cl.onap.info -e fs-00c0f00 -r us-east-2
+ clients
+ sudo ./cluster.sh -n true -s cl.onap.info -e fs-00c0f00 -r us-east-2 -t 23D4:15:qQ -c false -a host1.onap.info -v true
+ sudo ./oom_cluster_host_install.sh -n true -s cd.onap.cloud -e 1 -r us-east-2 -t token -c false -a 104.209.158.156 -v true
+Prereq:
+  You must create an EFS (NFS wrapper) on AWS
+
+-u                      : Display usage
+-n [true|false]         : is node (non master)
+-s [master server]      : target server (ip or FQDN only)
+-e [NFS Path]           : NFS directory path on the master 
+-t [token]              : registration token
+-h [agent ver]          : agent version (default 1.2.10 for 1.6.18
+-c [true/false]         : use computed client address
+-a [IP address]         : client address ip - no FQDN
+-v [validate true/false]: optional
+EOF
+}
+
+register_node() {
+    #constants
+    DOCKERDATA_NFS=dockerdata-nfs
+    DOCKER_VER=17.03
+    USERNAME=ubuntu
+    PORT=8880
+
+    if [[ "$IS_NODE" != false ]]; then
+        sudo curl https://releases.rancher.com/install-docker/$DOCKER_VER.sh | sh
+        sudo usermod -aG docker $USERNAME
+    fi
+    sudo apt-get install nfs-common -y
+    sudo mkdir /$DOCKERDATA_NFS
+    sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport $MASTER:/$NFS_PATH_IN_MASTER /$DOCKERDATA_NFS
+    if [[ "$IS_NODE" != false ]]; then
+        echo "Running agent docker..."
+        if [[ "$COMPUTEADDRESS" != false ]]; then
+            echo "sudo docker run --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/rancher:/var/lib/rancher rancher/agent:v$AGENT_VER http://$MASTER:$PORT/v1/scripts/$TOKEN"
+            sudo docker run --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/rancher:/var/lib/rancher rancher/agent:v$AGENT_VER http://$MASTER:$PORT/v1/scripts/$TOKEN
+        else
+            echo "sudo docker run -e CATTLE_AGENT_IP=\"$ADDRESS\" --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/rancher:/var/lib/rancher rancher/agent:v$AGENT_VER http://$MASTER:$PORT/v1/scripts/$TOKEN"
+            sudo docker run -e CATTLE_AGENT_IP="$ADDRESS" --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/rancher:/var/lib/rancher rancher/agent:v$AGENT_VER http://$MASTER:$PORT/v1/scripts/$TOKEN
+        fi
+    fi
+}
+
+IS_NODE=false
+MASTER=
+TOKEN=
+NFS_PATH_IN_MASTER=
+AGENT_VER=1.2.11
+COMPUTEADDRESS=true
+ADDRESS=
+VALIDATE=
+while getopts ":u:n:s:e:r:t:h:c:a:v" PARAM; do
+  case $PARAM in
+    u)
+      usage
+      exit 1
+      ;;
+    n)
+      IS_NODE=${OPTARG}
+      ;;
+    s)
+      MASTER=${OPTARG}
+      ;;
+    e)
+      NFS_PATH_IN_MASTER=${OPTARG}
+      ;;
+    t)
+      TOKEN=${OPTARG}
+      ;;
+    h)
+      AGENT_VER=${OPTARG}
+      ;;
+    c)
+      COMPUTEADDRESS=${OPTARG}
+      ;;
+    a)
+      ADDRESS=${OPTARG}
+      ;;
+    v)
+      VALIDATE=${OPTARG}
+      ;;
+    ?)
+      usage
+      exit
+      ;;
+  esac
+done
+
+if [ -z $MASTER ]; then
+  usage
+  exit 1
+fi
+
+register_node  $IS_NODE $MASTER $AWS_EFS $AWS_REGION $TOKEN $AGENT_VER $COMPUTEADDRESS $ADDRESS $VALIDATE
+echo "check dockerdata-nfs"
+sudo ls /dockerdata-nfs
+echo "if you get http://$MASTER:8880/v1 is not accessible (The requested URL returned error: 404 Not Found) - check your token"
+printf "**** Success: Done ****\n"
